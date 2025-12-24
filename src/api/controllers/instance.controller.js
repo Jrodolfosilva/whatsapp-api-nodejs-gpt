@@ -1,6 +1,4 @@
 const { WhatsAppInstance } = require('../class/instance')
-
-
 const fs = require('fs')
 const path = require('path')
 const config = require('../../config/config')
@@ -30,6 +28,12 @@ exports.init = async (req, res) => {
 }
 
 exports.qr = async (req, res) => {
+    
+    const test = await WhatsAppInstances[req.query.key]?.instance.qr
+    if(!test){
+        console.log("vazio")
+    }
+    
     try {
         const qrcode = await WhatsAppInstances[req.query.key]?.instance.qr
         res.render('qrcode', {

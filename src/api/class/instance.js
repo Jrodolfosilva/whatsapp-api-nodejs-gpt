@@ -3,7 +3,7 @@ const QRCode = require('qrcode')
 const pino = require('pino')
 const {
     default: makeWASocket,
-    DisconnectReason
+    DisconnectReason, fetchLatestBaileysVersion
 } = require('@whiskeysockets/baileys')
 const { unlinkSync } = require('fs')
 const { v4: uuidv4 } = require('uuid')
@@ -16,9 +16,10 @@ const config = require('../../config/config')
 const downloadMessage = require('../helper/downloadMsg')
 const logger = require('pino')()
 const useMongoDBAuthState = require('../helper/mongoAuthState')
-const { mongo } = require('mongoose')
-
 //const {waChatKey } = require('@whiskeysockets/baileys/lib/Store/make-in-memory-store')
+const { isKeyObject } = require('util/types')
+const { mongo } = require('mongoose')
+const { threadId } = require('worker_threads')
 
 
 
@@ -30,6 +31,7 @@ class WhatsAppInstance {
     authState
     allowWebhook = undefined
     webhook = undefined
+    version = ""
 
     socketConfig = {
         defaultQueryTimeoutMs: undefined,
@@ -37,7 +39,8 @@ class WhatsAppInstance {
         logger: pino({
             level: config.log.level,
         }),
-        key:this.key
+        key:this.key, 
+        version:this.version
     }
 
     instance = {
@@ -80,10 +83,13 @@ class WhatsAppInstance {
     }
 
     async init() {
+        const {version} = await fetchLatestBaileysVersion()
+    
         this.collection = mongoClient.db('whatsapp-api').collection(this.key)
         const { state, saveCreds } = await useMongoDBAuthState(this.collection)
         this.authState = { state: state, saveCreds: saveCreds }
         this.socketConfig.auth = this.authState.state
+        this.socketConfig.version = version
         this.socketConfig.browser = Object.values(config.browser)
         this.instance.sock = makeWASocket(this.socketConfig)
         this.setHandler()
@@ -103,8 +109,7 @@ class WhatsAppInstance {
 
         // on socket closed, opened, connecting
         sock?.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update
-            console.log(update)
+            const { connection, lastDisconnect, qr} = update
 
            if (connection === 'connecting') return
 
@@ -166,8 +171,7 @@ class WhatsAppInstance {
             }
 
             if (qr) {
-               
-
+                
                 QRCode.toDataURL(qr).then((url) => {
                     this.instance.qr = url
                     this.instance.qrRetry++
@@ -252,7 +256,6 @@ class WhatsAppInstance {
         // on new message
 
         sock?.ev.on('messages.upsert', async(m)=>{
-           
             if (m.type === 'prepend')
                 this.instance.messages.unshift(...m.messages)
             
@@ -465,13 +468,22 @@ class WhatsAppInstance {
         if (result?.exists) return true
         throw new Error('no account exists')
     }
+    async sendWriting(to){
+        await this.instance.sock?.presenceSubscribe(to)
+        await this.instance.sock?.sendPresenceUpdate('composing', to)
+        await this.instance.sock?.sendPresenceUpdate('paused', to)
+
+    }
 
     async sendTextMessage(to, message) {
         await this.verifyId(this.getWhatsAppId(to))
+        await this.sendWriting(this.getWhatsAppId(to))
         const data = await this.instance.sock?.sendMessage(
             this.getWhatsAppId(to),
-            { text: message }
+            { text: message },
+            { ephemeralExpiration: 0 }
         )
+       
         return data
     }
 
