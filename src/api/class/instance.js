@@ -1,5 +1,6 @@
 /* eslint-disable no-unsafe-optional-chaining */
 const QRCode = require('qrcode')
+const { BufferJSON } = require('@whiskeysockets/baileys')
 const pino = require('pino')
 const {
     default: makeWASocket,
